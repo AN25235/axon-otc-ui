@@ -52,6 +52,9 @@ var tradeAlertEnabled=false;
 var myPrevOrders=[];
 var _buying=false; // prevent double-click buy
 var _selling=false; // prevent double-click sell
+var _buyStart=0; // timestamp for stuck detection
+var _sellStart=0;
+var _switchStart=0;
 var _switchingChain=false; // chain switch lock
 
 // ===== INIT =====
@@ -181,24 +184,43 @@ async function loadAxonBalance(){
 
 // ===== SAFE CHAIN SWITCH =====
 async function safeChainSwitch(wp,targetHex,chainId){
-  if(_switchingChain)throw new Error('链切换中，请稍候');
-  _switchingChain=true;
+  if(_switchingChain){
+    if(_switchStart && Date.now()-_switchStart>30000){_switchingChain=false;}
+    else throw new Error('链切换中，请稍候');
+  }
+  _switchingChain=true;_switchStart=Date.now();
   try{
+    // skip if already on target chain
+    var curChain=await wp.request({method:'eth_chainId'});
+    var curDec=parseInt(curChain,16);
+    var targetDec=parseInt(targetHex,16);
+    if(curDec===targetDec){return;} // already there
     try{
       await wp.request({method:'wallet_switchEthereumChain',params:[{chainId:targetHex}]});
     }catch(sw){
       if(sw.code===4902||sw.code===-32603){
-        var cfg=CHAIN_CFG[chainId]||AXON_CHAIN;
-        await wp.request({method:'wallet_addEthereumChain',params:[cfg]});
+        var cfg=chainId===8210?AXON_CHAIN:(CHAIN_CFG[chainId]||null);
+        if(!cfg)throw new Error('不支持的链: '+chainId);
+        try{
+          await wp.request({method:'wallet_addEthereumChain',params:[cfg]});
+        }catch(addErr){
+          if(addErr.code===4001)throw new Error('用户拒绝添加网络');
+          throw addErr;
+        }
       }else if(sw.code===4001){
         throw new Error('用户取消了链切换');
       }else{
         throw sw;
       }
     }
-    // verify chain actually switched
-    var cur=await wp.request({method:'eth_chainId'});
-    if(cur.toLowerCase()!==targetHex.toLowerCase()){
+    // verify chain actually switched (with timeout)
+    var cur=await Promise.race([
+      wp.request({method:'eth_chainId'}),
+      new Promise(function(_,rej){setTimeout(function(){rej(new Error('链验证超时'));},8000);})
+    ]);
+    var curDec=parseInt(cur,16);
+    var targetDec=parseInt(targetHex,16);
+    if(curDec!==targetDec){
       throw new Error('链切换未生效，当前链: '+cur+'，目标: '+targetHex);
     }
   }finally{
@@ -249,6 +271,7 @@ async function loadOrders(){
   renderTrades();
   renderSideTrades();
   drawCharts();
+  updateSellMarketInfo();
 
   if(alertEnabled&&orders.length>0&&orders[0].price<=alertPrice){
     notify('OTC价格提醒','最低价 $'+orders[0].price.toFixed(3)+' 已低于 $'+alertPrice);
@@ -270,3 +293,21 @@ function notify(title,body){
     new Notification(title,{body:body,icon:'/otc/favicon.png'});
   }
 }
+
+// ===== AUTO UPDATE =====
+var _curVer=null;
+(function autoUpdate(){
+  var check=async function(){
+    try{
+      var r=await fetch('/otc/version.json?t='+Date.now());
+      var d=await r.json();
+      if(!_curVer){_curVer=d.v;return;}
+      if(d.v!==_curVer){
+        _curVer=d.v;
+        location.reload();
+      }
+    }catch(e){}
+  };
+  check();
+  setInterval(check,30000);
+})();

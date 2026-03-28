@@ -9,6 +9,7 @@ function switchTab(t,btn){
     if(el)el.style.display=n.toLowerCase()===t?'block':'none';
   });
   if(t==='myorders')loadMyOrders();
+  if(t==='sell')updateSellMarketInfo();
 }
 
 // ===== BUY =====
@@ -17,49 +18,65 @@ async function buyOrder(orderId){
   statusEl.className='status';statusEl.style.display='none';
   var btn=document.getElementById('buyConfirmBtn');
   btn.disabled=false;btn.textContent='确认购买';
-  try{
-    var ctrl=new AbortController();
-    var timer=setTimeout(function(){ctrl.abort();},10000);
-    var r=await fetch(KEEPER+'/order/'+orderId,{signal:ctrl.signal});
-    clearTimeout(timer);
-    var o=await r.json();
-    if(o.status&&o.status!=='Active'&&o.status!=='CancelPending'){
-      alert('订单状态: '+o.status+'，无法购买');return;
+
+  // Use cached order data for instant modal — no network request
+  var o=null;
+  for(var i=0;i<orders.length;i++){if(orders[i].id===orderId){o=orders[i];break;}}
+  if(!o){alert('订单不存在，请刷新');return;}
+
+  // Build payment info from cached data + local mappings
+  var chainId=o.chain_id||56;
+  var tokenName=o.token||'USDT';
+  var totalVal=parseFloat(o.total)||(o.amount*o.price);
+  var payAddr=o.payment_address||'';
+  pendingOrder={
+    id:o.id, amount:o.amount, price:o.price, total:totalVal,
+    seller:o.seller, chain_id:chainId, token:tokenName,
+    payment:{
+      address:payAddr,
+      amount:totalVal.toFixed(4),
+      token:tokenName,
+      token_address:(TOKENS[chainId]||{})[tokenName]||'',
+      chain_id:chainId,
+      chain_name:CHAIN_NAMES[chainId]||'BSC',
+      decimals:((TOKEN_DECIMALS[chainId]||{})[tokenName])||18
     }
-    pendingOrder=o;
-    var pmt=o.payment||{};
-    var totalVal=parseFloat(pmt.amount||o.total)||0;
-    document.getElementById('buyInfo').innerHTML=''
-      +'<div><span class="label">订单号</span><span class="val">#'+o.id+'</span></div>'
-      +'<div><span class="label">数量</span><span class="val">'+(parseFloat(o.amount)||0).toFixed(2)+' AXON</span></div>'
-      +'<div><span class="label">单价</span><span class="val" style="color:var(--cyan)">$'+(o.price||0).toFixed(4)+'</span></div>'
-      +'<div><span class="label">总价</span><span class="val" style="color:var(--yellow)">'+totalVal.toFixed(4)+' '+(pmt.token||'USDT')+'</span></div>'
-      +'<div><span class="label">付款链</span><span class="val">'+(pmt.chain_name||CHAIN_NAMES[o.chain_id]||'BSC')+'</span></div>'
-      +'<div><span class="label">付款地址</span><span class="val" style="font-size:9px;word-break:break-all">'+(pmt.address||o.payment_address||'')+'</span></div>';
-    document.getElementById('buyChainName').textContent=pmt.chain_name||CHAIN_NAMES[o.chain_id]||'BSC';
-    document.getElementById('buyTokenName').textContent=pmt.token||o.token||'USDT';
-    document.getElementById('buyModal').classList.add('show');
-  }catch(e){
-    if(e.name==='AbortError')alert('请求超时，请重试');
-    else alert('获取失败: '+e.message);
-  }
+  };
+  document.getElementById('buyInfo').innerHTML=''
+    +'<div><span class="label">订单号</span><span class="val">#'+o.id+'</span></div>'
+    +'<div><span class="label">数量</span><span class="val">'+parseFloat(o.amount).toFixed(2)+' AXON</span></div>'
+    +'<div><span class="label">单价</span><span class="val" style="color:var(--cyan)">$'+(o.price||0).toFixed(4)+'</span></div>'
+    +'<div><span class="label">总价</span><span class="val" style="color:var(--yellow)">'+totalVal.toFixed(4)+' '+tokenName+'</span></div>'
+    +'<div><span class="label">付款链</span><span class="val">'+(CHAIN_NAMES[chainId]||'BSC')+'</span></div>'
+    +'<div><span class="label">付款地址</span><span class="val" style="font-size:11px;word-break:break-all">'+payAddr+'</span></div>';
+  document.getElementById('buyChainName').textContent=CHAIN_NAMES[chainId]||'BSC';
+  document.getElementById('buyTokenName').textContent=tokenName;
+  document.getElementById('buyModal').classList.add('show');
 }
 function closeBuyModal(){document.getElementById('buyModal').classList.remove('show');pendingOrder=null;_buying=false;}
 
 async function executeBuy(){
   if(!pendingOrder)return;
-  if(_buying){return;} // prevent double click
-  _buying=true;
+  if(_buying){
+    // safety: if stuck for >60s, force unlock
+    if(_buyStart && Date.now()-_buyStart>60000){_buying=false;}
+    else{
+      var statusEl2=document.getElementById('buyStatus');
+      statusEl2.className='status show pending';statusEl2.textContent='⏳ 上笔交易仍在处理中，请稍候...';
+      return;
+    }
+  }
+  _buying=true;_buyStart=Date.now();
   var o=pendingOrder;
   var pmt=o.payment||{};
   var statusEl=document.getElementById('buyStatus');
   var btn=document.getElementById('buyConfirmBtn');
   var wp=getProvider();
-  if(!wp){alert('请安装钱包');_buying=false;return;}
+  if(!wp){alert('⬡ 请先安装 MetaMask 或 OKX Web3 钱包');_buying=false;return;}
 
   // self-buy check
   if(walletAddr&&o.seller&&walletAddr.toLowerCase()===o.seller.toLowerCase()){
-    alert('不能购买自己的订单');_buying=false;return;
+    alert('⚠️ 不能购买自己挂的订单');_buying=false;return;
   }
 
   var totalVal=parseFloat(pmt.amount||o.total)||0;
@@ -67,7 +84,7 @@ async function executeBuy(){
   var chainId=pmt.chain_id||o.chain_id||56;
 
   // amount sanity check
-  if(totalVal<=0){alert('订单金额异常');_buying=false;return;}
+  if(totalVal<=0){alert('⚠️ 订单金额异常，请刷新重试');_buying=false;return;}
   if(totalVal>10000){
     if(!confirm('⚠️ 大额交易警告\n\n付款金额: '+totalVal.toFixed(2)+' '+tokenName+'\n\n确认继续？')){
       _buying=false;return;
@@ -78,15 +95,18 @@ async function executeBuy(){
   try{
     // connect wallet if needed
     if(!walletAddr){
+      statusEl.className='status show pending';
+      statusEl.textContent='🔌 连接钱包...';
       var a=await wp.request({method:'eth_requestAccounts'});
       walletAddr=a[0];_provider=wp;showWallet();
     }
+    wp=getProvider(); // refresh provider reference
 
     // switch chain with safety verification
     var targetHex=CHAIN_HEX[chainId];
     if(!targetHex){alert('不支持的链: '+chainId);throw new Error('unsupported chain');}
     statusEl.className='status show pending';
-    statusEl.textContent='切换到 '+(CHAIN_NAMES[chainId]||chainId)+'...';
+    statusEl.textContent='🔗 切换到 '+(CHAIN_NAMES[chainId]||chainId)+' 网络...';
     await safeChainSwitch(wp,targetHex,chainId);
 
     // verify payment address is valid
@@ -101,7 +121,7 @@ async function executeBuy(){
       throw new Error('Token合约地址无效');
     }
 
-    statusEl.textContent='发送 '+totalVal.toFixed(4)+' '+tokenName+'...';
+    statusEl.textContent='📤 发送 '+totalVal.toFixed(4)+' '+tokenName+'...';
 
     var decimals=pmt.decimals||((TOKEN_DECIMALS[chainId]||{})[tokenName])||18;
     // safe BigInt conversion — avoid floating point issues
@@ -110,7 +130,6 @@ async function executeBuy(){
     var whole=parts[0]||'0';
     var frac=(parts[1]||'').padEnd(decimals,'0').slice(0,decimals);
     var rawStr=whole+frac;
-    // remove leading zeros but keep at least '0'
     rawStr=rawStr.replace(/^0+/,'')||'0';
     var rawAmount=BigInt(rawStr);
 
@@ -120,12 +139,23 @@ async function executeBuy(){
     var amtHex=rawAmount.toString(16).padStart(64,'0');
     var txData='0xa9059cbb'+toHex+amtHex;
 
-    // send transaction
+    // verify order still active (best-effort, non-blocking)
+    statusEl.textContent='⏳ 准备交易...';
+    var orderCheck=await Promise.race([
+      fetch(KEEPER+'/order/'+o.id).then(function(r){return r.json();}).catch(function(){return null;}),
+      new Promise(function(r){setTimeout(function(){r(null);},3000);})
+    ]);
+    // check if order was taken
+    if(orderCheck&&orderCheck.status&&orderCheck.status!=='Active'&&orderCheck.status!=='CancelPending'){
+      throw new Error('订单已'+orderCheck.status+'，请刷新页面');
+    }
+
+    statusEl.textContent='✍️ 请在钱包中确认...';
     var txHash=await wp.request({method:'eth_sendTransaction',params:[{from:walletAddr,to:tokenAddr,data:txData,value:'0x0'}]});
 
     var exp=EXPLORER[chainId]||'https://bscscan.com/tx/';
     statusEl.className='status show ok';
-    statusEl.innerHTML='✅ 发送成功! <a href="'+exp+txHash+'" target="_blank" style="color:var(--green)">查看交易</a><br>Keeper 30-60秒自动放币';
+    statusEl.innerHTML='✅ 付款已发送! <a href="'+exp+txHash+'" target="_blank" style="color:var(--green)">查看交易</a><br>⏱️ Keeper将在30-60秒内自动释放AXON到你的钱包';
     btn.textContent='已发送';
 
     // save buy record
@@ -140,8 +170,10 @@ async function executeBuy(){
   }catch(e){
     statusEl.className='status show err';
     var msg=e.message||'交易失败';
-    if(e.code===4001)msg='用户取消了交易';
-    else if(e.code===-32603)msg='交易执行失败，请检查余额和授权';
+    if(e.code===4001)msg='🚫 已取消交易';
+    else if(e.code===-32603)msg='❌ 交易执行失败，请检查余额和Token授权';
+    else if(e.code===-32000||msg.indexOf('nonce')>=0)msg='🔄 Nonce冲突 — 请在钱包"设置→高级→重置账户"清除缓存后重试';
+    console.error('executeBuy error:',e);
     statusEl.textContent=msg;
     btn.disabled=false;btn.textContent='确认购买';
   }finally{
@@ -231,8 +263,8 @@ function renderMyOrders(){
   });
   statsEl.innerHTML=''
     +'<div class="ms-item"><span class="ms-label">挂单中</span><span class="ms-val" style="color:var(--cyan)">'+countActive+'</span></div>'
-    +'<div class="ms-item"><span class="ms-label">已卖出</span><span class="ms-val" style="color:var(--red)">'+countSold+'</span><span class="dim" style="font-size:10px">$'+volSold.toFixed(2)+'</span></div>'
-    +'<div class="ms-item"><span class="ms-label">已买入</span><span class="ms-val" style="color:var(--green)">'+countBought+'</span><span class="dim" style="font-size:10px">$'+volBought.toFixed(2)+'</span></div>'
+    +'<div class="ms-item"><span class="ms-label">已卖出</span><span class="ms-val" style="color:var(--red)">'+countSold+'</span><span class="dim" style="font-size:12px">$'+volSold.toFixed(2)+'</span></div>'
+    +'<div class="ms-item"><span class="ms-label">已买入</span><span class="ms-val" style="color:var(--green)">'+countBought+'</span><span class="dim" style="font-size:12px">$'+volBought.toFixed(2)+'</span></div>'
     +'<div class="ms-item"><span class="ms-label">已取消</span><span class="ms-val" style="color:var(--dim)">'+countCancel+'</span></div>';
 
   var filtered=myAllOrders.filter(function(o){
@@ -256,9 +288,9 @@ function renderMyOrders(){
     var typeClass=o.role==='buy'?'type-buy':'type-sell';
     var typeText=o.role==='buy'?'买入':'卖出';
     var btn='';
-    if(o.role==='sell'&&st==='Active')btn='<button onclick="event.stopPropagation();requestCancel('+o.id+')" style="padding:4px 10px;border-radius:6px;border:1px solid var(--red);background:transparent;color:var(--red);font-size:10px;cursor:pointer;font-weight:600">取消</button>';
-    else if(st==='CancelPending')btn='<span style="font-size:10px;color:var(--yellow)">冷却中</span>';
-    else if(st==='Disputed')btn='<span style="font-size:10px;color:var(--red)">争议中</span>';
+    if(o.role==='sell'&&st==='Active')btn='<button onclick="event.stopPropagation();requestCancel('+o.id+')" style="padding:4px 10px;border-radius:6px;border:1px solid var(--red);background:transparent;color:var(--red);font-size:12px;cursor:pointer;font-weight:600">取消</button>';
+    else if(st==='CancelPending')btn='<span style="font-size:12px;color:var(--yellow)">冷却中</span>';
+    else if(st==='Disputed')btn='<span style="font-size:12px;color:var(--red)">争议中</span>';
     else btn='—';
     h+='<div class="order row-my" onclick="showDetail('+o.id+')">'
       +'<span class="id">#'+o.id+'</span>'
@@ -300,8 +332,16 @@ function requestCancel(id){
 
 // ===== ONE-CLICK SELL =====
 async function executeSell(){
-  if(_selling)return;
-  _selling=true;
+  var statusEl=document.getElementById('sellStatus');
+  var btn=document.getElementById('sellBtn');
+  if(_selling){
+    if(_sellStart && Date.now()-_sellStart>60000){_selling=false;}
+    else{
+      statusEl.className='status show pending';statusEl.textContent='⏳ 上笔交易仍在处理中，请稍候...';
+      return;
+    }
+  }
+  _selling=true;_sellStart=Date.now();
   var wp=getProvider();
   if(!wp){alert('请安装 OKX Web3 钱包 或 MetaMask');_selling=false;return;}
   var amount=parseFloat(document.getElementById('sellAmount').value)||0;
@@ -310,28 +350,27 @@ async function executeSell(){
   var token=document.getElementById('sellToken').value;
 
   // validation
-  if(amount<=0||price<=0){alert('请填写正确的数量和价格');_selling=false;return;}
+  if(amount<=0||price<=0){alert('⚠️ 请填写有效的数量和价格');_selling=false;return;}
   if(amount>5000){
     if(!confirm('⚠️ 挂单数量 '+amount+' AXON 较大，确认继续？')){_selling=false;return;}
   }
   var warn=document.getElementById('priceWarn');
-  if(warn&&(warn.className.indexOf('danger')>=0)){alert('请先修正价格问题');_selling=false;return;}
+  if(warn&&(warn.className.indexOf('danger')>=0)){alert('⚠️ 请先修正价格警告后再挂单');_selling=false;return;}
 
-  var btn=document.getElementById('sellBtn');
-  var statusEl=document.getElementById('sellStatus');
   btn.disabled=true;btn.textContent='处理中...';
-  statusEl.className='status show pending';statusEl.textContent='连接钱包...';
+  statusEl.className='status show pending';statusEl.textContent='🔌 连接钱包...';
   try{
     if(!walletAddr){
       var a=await wp.request({method:'eth_requestAccounts'});
       walletAddr=a[0];_provider=wp;showWallet();
     }
+    wp=getProvider(); // refresh provider reference
     // switch to Axon
-    statusEl.textContent='切换到 Axon 链...';
+    statusEl.textContent='🔗 切换到 Axon 主网...';
     await safeChainSwitch(wp,'0x2012',8210);
 
-    // check balance before sending
-    statusEl.textContent='检查余额...';
+    // check balance
+    statusEl.textContent='💰 检查余额...';
     var balRes=await wp.request({method:'eth_getBalance',params:[walletAddr,'latest']});
     var balAxon=parseInt(balRes,16)/1e18;
     if(balAxon<amount){
@@ -344,7 +383,7 @@ async function executeSell(){
       throw {code:4001,message:'用户取消'};
     }
 
-    statusEl.textContent='签名挂单交易...';
+    statusEl.textContent='⏳ 准备交易...';
     var OTC='0x10063340374db851e2628D06F4732d5FF814eB34';
     var price6=Math.round(price*1e6);
     var amountWei='0x'+BigInt(Math.round(amount*1e18)).toString(16);
@@ -361,26 +400,40 @@ async function executeSell(){
     var txData='0x41e113aa'
       +pHex
       +cHex
-      +aHex
       +'0000000000000000000000000000000000000000000000000000000000000080'
+      +aHex
       +tokenLen
       +tokenHex;
 
+    // fetch gasPrice — try public RPC, fallback to hardcoded
+    var gasPrice='0x430e2340'; // ~1.125 Gwei default
+    try{
+      var gpR=await fetch(AXON_RPC,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',method:'eth_gasPrice',params:[],id:1})});
+      var gpJ=await gpR.json();
+      if(gpJ.result)gasPrice=gpJ.result;
+    }catch(e){}
+
+    statusEl.textContent='✍️ 请在钱包中确认交易...';
     var txHash=await wp.request({method:'eth_sendTransaction',params:[{
       from:walletAddr,
       to:OTC,
       data:txData,
       value:amountWei,
+      gas:'0x493e0',
+      gasPrice:gasPrice,
       chainId:'0x2012'
     }]});
     statusEl.className='status show ok';
-    statusEl.innerHTML='✅ 挂单成功! <a href="https://axon-explorer.axonchain.ai/tx/'+txHash+'" target="_blank" style="color:var(--green)">查看交易</a><br>等待Keeper上架，约30秒后刷新可见';
+    statusEl.innerHTML='✅ 挂单成功! <a href="https://axon-explorer.axonchain.ai/tx/'+txHash+'" target="_blank" style="color:var(--green)">查看交易</a><br>⏱️ Keeper将在30秒内上架，届时自动刷新';
     btn.textContent='⬡ 一键挂单';btn.disabled=false;
     setTimeout(loadOrders,30000);
   }catch(e){
     statusEl.className='status show err';
     var msg=e.message||'交易失败';
-    if(e.code===4001)msg='用户取消了操作';
+    if(e.code===4001)msg='🚫 已取消操作';
+    else if(e.code===-32000||msg.indexOf('nonce')>=0||msg.indexOf('NONCE')>=0)msg='🔄 Nonce冲突 — 请在钱包"设置→高级→重置账户"清除缓存后重试';
+    else if(e.code===-32603)msg='❌ 交易失败，请检查AXON余额是否充足';
+    console.error('executeSell error:',e);
     statusEl.textContent=msg;
     btn.textContent='⬡ 一键挂单';btn.disabled=false;
   }finally{

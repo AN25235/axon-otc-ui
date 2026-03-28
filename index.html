@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>AXON /U — 场外交易平台</title>
-<link rel="stylesheet" href="otc.css">
+<link rel="stylesheet" href="otc.css?v=30">
 </head>
 <body>
 <div class="wrap">
@@ -93,39 +93,72 @@
 
   <!-- ====== 出售页 ====== -->
   <div id="tabSell" style="display:none">
-    <div class="sell-box">
-      <h3>📤 创建卖单</h3>
-      <p class="sell-desc">在Axon链调用合约创建订单。复制命令到终端执行，或让AI Agent执行。</p>
-      <div class="sell-form">
-        <div><label>数量 (AXON)</label><input type="number" id="sellAmount" value="100" min="1" step="1" oninput="updateSellCmd()"></div>
-        <div><label>单价 (USDT)</label><input type="number" id="sellPrice" value="0.10" min="0.001" step="0.01" oninput="updateSellCmd()"></div>
-        <div><label>付款链</label><select id="sellChain" onchange="updateSellCmd()"><option value="56">BSC</option><option value="42161">Arbitrum</option></select></div>
-        <div><label>付款代币</label><select id="sellToken" onchange="updateSellCmd()"><option value="USDT">USDT</option><option value="USDC">USDC</option></select></div>
-      </div>
-      <div class="sell-summary">
-        总价 <span id="sellTotal" class="hl-yellow">$10.00</span> · 手续费0.3% · 需少量AXON作gas
-      </div>
-      <div class="price-warn" id="priceWarn"></div>
-      <button class="btn-s btn-green" id="sellBtn" onclick="executeSell()" style="width:100%;padding:12px;font-size:14px;margin-bottom:12px">⬡ 一键挂单 (钱包签名)</button>
-      <div class="status" id="sellStatus"></div>
-      <!-- 批量挂单 -->
-      <div class="batch-toggle" onclick="toggleBatch()">📦 批量挂单 ▾</div>
-      <div id="batchSection" style="display:none">
-        <div class="sell-form" style="margin-top:10px">
-          <div><label>起始价</label><input type="number" id="batchStart" value="0.10" step="0.01"></div>
-          <div><label>每档加价</label><input type="number" id="batchStep" value="0.01" step="0.005"></div>
-          <div><label>每档数量</label><input type="number" id="batchAmount" value="50" step="1"></div>
-          <div><label>档数</label><input type="number" id="batchCount" value="3" min="1" max="10"></div>
+    <div class="sell-layout">
+      <div class="sell-left">
+        <div class="sell-box">
+          <h3>创建卖单</h3>
+          <p class="sell-desc">连接钱包一键挂单，或复制Python命令在终端执行</p>
+          <div class="sell-form">
+            <div><label>数量 (AXON)</label><input type="number" id="sellAmount" value="100" min="1" step="1" oninput="updateSellCmd()"></div>
+            <div><label>单价 (USDT)</label><input type="number" id="sellPrice" value="0.10" min="0.001" step="0.01" oninput="updateSellCmd()"></div>
+            <div><label>付款链</label><select id="sellChain" onchange="updateSellCmd()"><option value="56">BSC</option><option value="42161">Arbitrum</option></select></div>
+            <div><label>付款代币</label><select id="sellToken" onchange="updateSellCmd()"><option value="USDT">USDT</option><option value="USDC">USDC</option></select></div>
+          </div>
+          <div class="sell-summary">
+            总价 <span id="sellTotal" class="hl-yellow">$10.00</span> · 手续费0.3% · 需少量AXON作gas
+          </div>
+          <div class="price-warn" id="priceWarn"></div>
+          <button class="btn-s btn-green" id="sellBtn" onclick="executeSell()" style="width:100%;padding:12px;font-size:14px;margin-bottom:12px">⬡ 一键挂单 (钱包签名)</button>
+          <div class="status" id="sellStatus"></div>
+          <div class="batch-toggle" onclick="toggleBatch()">📦 批量挂单 ▾</div>
+          <div id="batchSection" style="display:none">
+            <div class="sell-form" style="margin-top:10px">
+              <div><label>起始价</label><input type="number" id="batchStart" value="0.10" step="0.01"></div>
+              <div><label>每档加价</label><input type="number" id="batchStep" value="0.01" step="0.005"></div>
+              <div><label>每档数量</label><input type="number" id="batchAmount" value="50" step="1"></div>
+              <div><label>档数</label><input type="number" id="batchCount" value="3" min="1" max="10"></div>
+            </div>
+            <button class="btn-batch" onclick="genBatchCmd()">生成批量命令</button>
+          </div>
+          <div style="border-top:1px solid var(--border);margin:16px 0;padding-top:12px">
+            <div class="dim" style="font-size:12px;margin-bottom:8px">或者复制命令在终端执行：</div>
+          </div>
+          <div class="cmd-label">Python 命令：</div>
+          <div class="cmd-box">
+            <button class="copy-cmd" onclick="copyCmd(this)">📋 复制</button>
+            <pre id="sellCmdText"></pre>
+          </div>
         </div>
-        <button class="btn-batch" onclick="genBatchCmd()">生成批量命令</button>
       </div>
-      <div style="border-top:1px solid var(--border);margin:16px 0;padding-top:12px">
-        <div class="dim" style="font-size:10px;margin-bottom:8px">或者复制命令在终端执行：</div>
-      </div>
-      <div class="cmd-label">Python 命令：</div>
-      <div class="cmd-box">
-        <button class="copy-cmd" onclick="copyCmd(this)">📋 复制</button>
-        <pre id="sellCmdText"></pre>
+      <div class="sell-right">
+        <!-- 深度图 -->
+        <div class="sell-panel">
+          <div class="panel-title">挂单深度</div>
+          <canvas id="depthChart" height="160"></canvas>
+        </div>
+        <!-- 市场概览 -->
+        <div class="sell-panel">
+          <div class="panel-title">市场概览</div>
+          <div class="market-grid">
+            <div class="mkt-row"><span class="mkt-label">最低挂价</span><span class="mkt-val green" id="mktFloor">—</span></div>
+            <div class="mkt-row"><span class="mkt-label">最新成交</span><span class="mkt-val blue" id="mktLast">—</span></div>
+            <div class="mkt-row"><span class="mkt-label">活跃卖单</span><span class="mkt-val" id="mktActive">—</span></div>
+            <div class="mkt-row"><span class="mkt-label">总挂单量</span><span class="mkt-val" id="mktDepth">— AXON</span></div>
+            <div class="mkt-row"><span class="mkt-label">累计成交</span><span class="mkt-val yellow" id="mktVol">—</span></div>
+            <div class="mkt-row"><span class="mkt-label">成交笔数</span><span class="mkt-val" id="mktTrades">—</span></div>
+          </div>
+        </div>
+        <!-- 交易规则 -->
+        <div class="sell-panel">
+          <div class="panel-title">交易规则</div>
+          <div class="rules-list">
+            <div class="rule-item"><span class="rule-icon">📌</span>挂单后AXON锁入合约，取消需15分钟冷却</div>
+            <div class="rule-item"><span class="rule-icon">💰</span>成交手续费0.3%，从AXON中扣除</div>
+            <div class="rule-item"><span class="rule-icon">⚡</span>Keeper自动撮合，约30秒上架</div>
+            <div class="rule-item"><span class="rule-icon">🔗</span>支持BSC和Arbitrum链收款</div>
+            <div class="rule-item"><span class="rule-icon">🔒</span>合约开源，链上可验证</div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -181,9 +214,9 @@
   </div>
 
   <div class="footer">
-    <a href="https://axonchain.ai" target="_blank">Axon</a> · <a href="https://axonotc.com" target="_blank">Keeper V7</a>
-    <br>OTC合约 <span class="mono" style="font-size:9px">0x10063340374db851e2628D06F4732d5FF814eB34</span>
-    <br>Registry合约 <span class="mono" style="font-size:9px">0x98e40D7D867E4E8e185d216bab13B79f5283F656</span>
+    <a href="https://ai-colony.top">AI Colony</a> · <a href="https://axonchain.ai" target="_blank">Axon</a> · <a href="https://axonotc.com" target="_blank">Keeper V7</a>
+    <br>OTC合约 <span class="mono" style="font-size:11px">0x10063340374db851e2628D06F4732d5FF814eB34</span>
+    <br>Registry合约 <span class="mono" style="font-size:11px">0x98e40D7D867E4E8e185d216bab13B79f5283F656</span>
     · Axon Mainnet (8210) · BSC/Arb
   </div>
 </div>
@@ -214,8 +247,8 @@
   </div>
 </div>
 
-<script src="otc.js"></script>
-<script src="otc2.js"></script>
-<script src="otc3.js"></script>
+<script src="otc.js?v=25"></script>
+<script src="otc2.js?v=19"></script>
+<script src="otc3.js?v=28"></script>
 </body>
 </html>
