@@ -50,3 +50,15 @@ bash deploy.sh /path/to/otc/
 ## License
 
 MIT
+
+---
+
+## ⚠️ Original Work Notice
+
+This project is the **original work** of [AN25235](https://github.com/AN25235), independently designed and developed from scratch.
+
+- **Author**: AN25235
+- **Repository**: [github.com/AN25235/axon-otc-ui](https://github.com/AN25235/axon-otc-ui)
+- **First Published**: March 2026
+
+If you fork, modify, or redistribute this code, please retain this attribution and link back to the original repository. Unauthorized removal of authorship credit is a violation of good faith, even under MIT license.
