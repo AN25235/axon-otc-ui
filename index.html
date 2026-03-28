@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>AXON /U — 场外交易平台</title>
-<link rel="stylesheet" href="otc.css?v=30">
+<link rel="stylesheet" href="otc.css?v=38">
 </head>
 <body>
 <div class="wrap">
@@ -34,6 +34,18 @@
       <button class="theme-btn" id="themeBtn" onclick="toggleTheme()" title="切换主题">🌙</button>
       <button class="btn-s btn-wallet" id="walletBtn" onclick="connectWallet()">连接钱包</button>
       <button class="btn-s btn-ghost" id="disconnectBtn" onclick="disconnectWallet()" style="display:none;color:var(--red);border-color:var(--red)">✕</button>
+    </div>
+  </div>
+
+  <!-- 公告横幅 -->
+  <div class="notice-bar" id="noticeBar" style="display:none"></div>
+
+  <!-- 平台维护遮罩 -->
+  <div class="maintenance-overlay" id="maintenanceOverlay" style="display:none">
+    <div class="maintenance-box">
+      <div style="font-size:48px;margin-bottom:16px">🔧</div>
+      <h2>平台维护中</h2>
+      <p id="maintenanceMsg">系统正在升级，请稍后再来</p>
     </div>
   </div>
 
@@ -214,7 +226,7 @@
   </div>
 
   <div class="footer">
-    <a href="https://ai-colony.top">AI Colony</a> · <a href="https://axonchain.ai" target="_blank">Axon</a> · <a href="https://axonotc.com" target="_blank">Keeper V7</a>
+    <a href="https://your-domain.com">AI Colony</a> · <a href="https://axonchain.ai" target="_blank">Axon</a> · <a href="https://axonotc.com" target="_blank">Keeper V7</a>
     <br>OTC合约 <span class="mono" style="font-size:11px">0x10063340374db851e2628D06F4732d5FF814eB34</span>
     <br>Registry合约 <span class="mono" style="font-size:11px">0x98e40D7D867E4E8e185d216bab13B79f5283F656</span>
     · Axon Mainnet (8210) · BSC/Arb
@@ -247,8 +259,8 @@
   </div>
 </div>
 
-<script src="otc.js?v=25"></script>
-<script src="otc2.js?v=19"></script>
-<script src="otc3.js?v=28"></script>
+<script src="otc.js?v=33"></script>
+<script src="otc2.js?v=27"></script>
+<script src="otc3.js?v=36"></script>
 </body>
 </html>

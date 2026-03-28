@@ -30,7 +30,7 @@ function renderOrders(){
   if(!sorted.length){diffUpdate(el,'<div class="loading">暂无匹配卖单</div>');return;}
   var h='';
   sorted.forEach(function(o){
-    var s=o.seller||'';
+    var s=esc(o.seller||'');
     var ss=s?s.slice(0,6)+'...'+s.slice(-4):'';
     h+='<div class="order row-buy" onclick="showDetail('+o.id+')">'
       +'<span class="id">#'+o.id+'</span>'
@@ -51,7 +51,7 @@ function renderTrades(){
   if(!trades.length){diffUpdate(el,'<div class="loading">暂无成交记录</div>');return;}
   var h='';
   trades.forEach(function(t){
-    var s=t.seller||'';
+    var s=esc(t.seller||'');
     var ss=s?s.slice(0,6)+'...'+s.slice(-4):'';
     h+='<div class="order row-buy trade" onclick="showDetail('+t.id+')">'
       +'<span class="id">#'+t.id+'</span>'
@@ -380,7 +380,7 @@ async function showDetail(orderId){
       +'<div><span class="label">总价</span><span class="val" style="color:var(--yellow)">'+(pmt.amount||o.total||'')+' '+(pmt.token||o.token||'USDT')+'</span></div>'
       +'<div><span class="label">付款链</span><span class="val">'+(pmt.chain_name||CHAIN_NAMES[o.chain_id]||'BSC')+'</span></div>'
       +'<div><span class="label">付款地址</span><span class="val" style="font-size:11px;word-break:break-all">'+(pmt.address||o.payment_address||'—')+'</span></div>'
-      +'<div><span class="label">卖家</span><span class="val" style="font-size:11px;word-break:break-all">'+(o.seller||'—')+'</span></div>'
+      +'<div><span class="label">卖家</span><span class="val" style="font-size:11px;word-break:break-all">'+esc(o.seller||'—')+'</span></div>'
       +'<div><span class="label">状态</span><span class="val">'+statusText+'</span></div>';
     if(o.status==='Disputed'){
       info.innerHTML+='<div style="margin-top:8px;padding:8px;background:#ff525215;border-radius:6px;font-size:12px;color:#ff8a80">⚠️ 订单争议中，请通过官方渠道联系管理员处理。</div>';
@@ -397,7 +397,7 @@ async function showDetail(orderId){
       info.innerHTML='<div><span class="label">订单号</span><span class="val">#'+found.id+'</span></div>'
         +'<div><span class="label">数量</span><span class="val">'+(parseFloat(found.amount)||0).toFixed(2)+' AXON</span></div>'
         +'<div><span class="label">单价</span><span class="val">$'+(found.price||0).toFixed(4)+'</span></div>'
-        +'<div><span class="label">卖家</span><span class="val" style="font-size:11px">'+(found.seller||'')+'</span></div>'
+        +'<div><span class="label">卖家</span><span class="val" style="font-size:11px">'+esc(found.seller||'')+'</span></div>'
         +'<div><span class="label">状态</span><span class="val">'+(found.status||'—')+'</span></div>';
     }else{
       info.innerHTML='<div class="loading">无法获取详情</div>';

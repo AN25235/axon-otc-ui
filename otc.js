@@ -1,6 +1,35 @@
 /* AXON /U — otc.js — Core Data & Wallet & Theme */
 
+// ===== PLATFORM CONFIG =====
+async function loadConfig(){
+  try{
+    var r=await fetch('/otc/config.json?t='+Date.now());
+    var cfg=await r.json();
+    // Maintenance mode
+    var overlay=document.getElementById('maintenanceOverlay');
+    if(cfg.enabled===false&&overlay){
+      overlay.style.display='flex';
+      var msg=document.getElementById('maintenanceMsg');
+      if(msg&&cfg.maintenance_msg)msg.textContent=cfg.maintenance_msg;
+      return false;
+    }else if(overlay){overlay.style.display='none';}
+    // Notice bar
+    var bar=document.getElementById('noticeBar');
+    if(bar){
+      if(cfg.notice&&cfg.notice.length>0){
+        bar.textContent=cfg.notice;
+        bar.className='notice-bar '+(cfg.notice_type||'warn');
+        bar.style.display='block';
+      }else{bar.style.display='none';}
+    }
+    return true;
+  }catch(e){return true;}
+}
+
 // ===== THEME =====
+
+// HTML entity escape — sanitize all external data before innerHTML
+function esc(s){if(!s)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function toggleTheme(){
   var html=document.documentElement;
   var cur=html.getAttribute('data-theme')||'dark';
@@ -61,6 +90,8 @@ var _switchingChain=false; // chain switch lock
 window.addEventListener('load', init);
 
 async function init(){
+  var ok=await loadConfig();
+  if(!ok)return; // maintenance mode
   checkKeeper();
   var wp=getProvider();
   if(wp){
@@ -73,6 +104,7 @@ async function init(){
         walletAddr=a&&a[0]?a[0]:null;
         showWallet();
         if(!walletAddr) onDisconnect();
+        else loadMyOrders();
       });
       wp.on('chainChanged',function(chainId){
         // just update UI, no reload needed
@@ -84,7 +116,7 @@ async function init(){
   }
   await loadOrders();
   updateSellCmd();
-  setInterval(loadOrders,30000);
+  setInterval(function(){loadConfig();loadOrders();},30000);
 }
 
 function onDisconnect(){
@@ -272,6 +304,10 @@ async function loadOrders(){
   renderSideTrades();
   drawCharts();
   updateSellMarketInfo();
+  // auto-refresh my orders if that tab is active
+  if(document.getElementById('tabMyorders')&&document.getElementById('tabMyorders').style.display!=='none'){
+    loadMyOrders();
+  }
 
   if(alertEnabled&&orders.length>0&&orders[0].price<=alertPrice){
     notify('OTC价格提醒','最低价 $'+orders[0].price.toFixed(3)+' 已低于 $'+alertPrice);

@@ -1,8 +1,8 @@
 #!/bin/bash
 # OTC deploy script — bump versions and trigger auto-update
-# Usage: bash deploy.sh [dir]
+# Usage: bash /var/www/ai-colony/otc/deploy.sh
 
-DIR=${1:-.}
+DIR=/var/www/ai-colony/otc
 
 # Syntax check all JS
 for f in otc.js otc2.js otc3.js; do
