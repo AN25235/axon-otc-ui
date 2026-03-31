@@ -46,19 +46,27 @@ async function buyOrder(orderId){
     var d=await r.json();
     var fresh=(d.orders||d);
     for(var i=0;i<fresh.length;i++){if(fresh[i].id===orderId){o=fresh[i];break;}}
+    if(!o){alert('订单 #'+orderId+' 已成交或已取消，请刷新页面');loadOrders();return;}
   }catch(e){}
 
-  // Fallback to cached only if Keeper is down
+  // Fallback to cached only if Keeper is down (but never use cached payment_address)
+  var fromCache=false;
   if(!o){
-    for(var i=0;i<orders.length;i++){if(orders[i].id===orderId){o=orders[i];break;}}
+    for(var i=0;i<orders.length;i++){if(orders[i].id===orderId){o=orders[i];fromCache=true;break;}}
     if(!o){alert('订单不存在或已成交，请刷新');return;}
   }
 
-  // Build payment info from cached data + local mappings
+  // CRITICAL: payment_address must come from fresh Keeper data, never cache
+  var payAddr=o.payment_address||'';
+  if(fromCache||!payAddr){
+    alert('⚠️ 无法获取最新付款地址，请刷新页面后重试');
+    loadOrders();return;
+  }
+
+  // Build payment info — payAddr already validated above
   var chainId=o.chain_id||56;
   var tokenName=o.token||'USDT';
   var totalVal=parseFloat(o.total)||(o.amount*o.price);
-  var payAddr=o.payment_address||'';
   pendingOrder={
     id:o.id, amount:o.amount, price:o.price, total:totalVal,
     seller:o.seller, chain_id:chainId, token:tokenName,
@@ -139,9 +147,26 @@ async function executeBuy(){
     statusEl.textContent='🔗 切换到 '+(CHAIN_NAMES[chainId]||chainId)+' 网络...';
     await safeChainSwitch(wp,targetHex,chainId);
 
-    // verify payment address is valid
-    var payAddr=pmt.address||o.payment_address;
-    if(!payAddr||!/^0x[0-9a-fA-F]{40}$/.test(payAddr)){
+    // CRITICAL: re-fetch fresh payment address from Keeper right before sending
+    statusEl.className='status show pending';
+    statusEl.textContent='🔒 验证付款地址...';
+    var freshAddr=null;
+    try{
+      var rc=new AbortController();
+      var rt=setTimeout(function(){rc.abort();},8000);
+      var rr=await fetch(KEEPER+'/orders',{signal:rc.signal});
+      clearTimeout(rt);
+      var rd=await rr.json();
+      var fo=(rd.orders||rd);
+      for(var fi=0;fi<fo.length;fi++){
+        if(fo[fi].id===o.id){freshAddr=fo[fi].payment_address;break;}
+      }
+    }catch(e){}
+    if(!freshAddr){
+      throw new Error('无法验证付款地址，订单可能已成交，请刷新');
+    }
+    var payAddr=freshAddr;
+    if(!/^0x[0-9a-fA-F]{40}$/.test(payAddr)){
       throw new Error('付款地址无效: '+(payAddr||'空'));
     }
 
@@ -230,27 +255,40 @@ async function loadMyOrders(){
   var el=document.getElementById('myOrderList');
   if(!walletAddr){
     if(getProvider()){try{var a=await getProvider().request({method:'eth_requestAccounts'});walletAddr=a[0];showWallet();}catch(e){}}
-    if(!walletAddr){el.innerHTML='<div class="loading">请先连接钱包</div>';return;}
+    if(!walletAddr){diffUpdate(el,'<div class="loading">请先连接钱包</div>');return;}
   }
-  document.getElementById('myAddr').textContent=walletAddr.slice(0,8)+'...'+walletAddr.slice(-6);
-  el.innerHTML='<div class="loading">加载中...</div>';
-  myAllOrders=[];
+  diffText(document.getElementById('myAddr'),walletAddr.slice(0,8)+'...'+walletAddr.slice(-6));
+  // 首次加载才显示loading，刷新时保持旧数据不闪
+  if(!myAllOrders.length) el.innerHTML='<div class="loading">加载中...</div>';
+  var newOrders=[];
   var addr=walletAddr.toLowerCase();
 
-  // 1. Active sell orders from Keeper
+  // 1. Active sell orders from Keeper (check real status via /order/:id)
   try{
     var r2=await fetch(KEEPER+'/orders');
     var d2=await r2.json();
-    (d2.orders||d2).forEach(function(o){
-      if(o.seller&&o.seller.toLowerCase()===addr){
-        o.status='Active';o.role='sell';myAllOrders.push(o);
+    var mySellerOrders=(d2.orders||d2).filter(function(o){return o.seller&&o.seller.toLowerCase()===addr;});
+    // Batch check real status for each order
+    var detailPromises=mySellerOrders.map(function(o){
+      return fetch(KEEPER+'/order/'+o.id).then(function(r){return r.json();}).catch(function(){return null;});
+    });
+    var details=await Promise.all(detailPromises);
+    details.forEach(function(d,i){
+      if(!d)return;
+      var o=Object.assign({},mySellerOrders[i],d);
+      o.role='sell';
+      o.status=d.status||'Active';
+      // For CancelPending, try to extract cancel_time from detail
+      if(o.status==='CancelPending'&&d.cancel_time){
+        o.cancel_time=d.cancel_time;
       }
+      newOrders.push(o);
     });
   }catch(e){}
 
   // 2. Completed trades from otc.json — match both seller and buyer
   var seenIds={};
-  myAllOrders.forEach(function(o){seenIds['sell_'+o.id]=1;});
+  newOrders.forEach(function(o){seenIds['sell_'+o.id]=1;});
   try{
     var r=await fetch('/explorer/otc.json?t='+Date.now());
     var otc=await r.json();
@@ -260,13 +298,13 @@ async function loadMyOrders(){
       if(o.seller&&o.seller.toLowerCase()===addr&&!seenIds['sell_'+o.id]){
         var copy=JSON.parse(JSON.stringify(o));
         copy.role='sell';copy.status=copy.status||'Completed';
-        myAllOrders.push(copy);seenIds['sell_'+o.id]=1;
+        newOrders.push(copy);seenIds['sell_'+o.id]=1;
       }
       // As buyer
       if(o.buyer&&o.buyer.toLowerCase()===addr&&!seenIds['buy_'+o.id]){
         var copy=JSON.parse(JSON.stringify(o));
         copy.role='buy';copy.status=copy.status||'Completed';
-        myAllOrders.push(copy);seenIds['buy_'+o.id]=1;
+        newOrders.push(copy);seenIds['buy_'+o.id]=1;
       }
     });
   }catch(e){}
@@ -278,19 +316,34 @@ async function loadMyOrders(){
       // Only show records matching current wallet
       if(o.buyer&&o.buyer.toLowerCase()===addr&&!seenIds['buy_'+o.id]){
         o.role='buy';o.status=o.status||'Pending';
-        myAllOrders.push(o);seenIds['buy_'+o.id]=1;
+        newOrders.push(o);seenIds['buy_'+o.id]=1;
       }
     });
   }catch(e){}
 
-  myAllOrders.sort(function(a,b){return b.id-a.id;});
+  // 4. Cancelled orders from localStorage
+  try{
+    var cancelled=JSON.parse(localStorage.getItem('otc_cancelled')||'[]');
+    cancelled.forEach(function(c){
+      if(!seenIds['sell_'+c.id]){
+        newOrders.push({id:c.id,role:'sell',status:'Cancelled',amount:c.amount||0,price:c.price||0,total:c.total||0,time:c.time});
+        seenIds['sell_'+c.id]=1;
+      }else{
+        // Update existing CancelPending → Cancelled if finalized
+        newOrders.forEach(function(o){if(o.id===c.id&&o.status==='CancelPending')o.status='Cancelled';});
+      }
+    });
+  }catch(e){}
+
+  newOrders.sort(function(a,b){return b.id-a.id;});
+  myAllOrders=newOrders;
   renderMyOrders();
 }
 
 function renderMyOrders(){
   var el=document.getElementById('myOrderList');
   var statsEl=document.getElementById('myStats');
-  if(!myAllOrders.length){el.innerHTML='<div class="loading">暂无订单</div>';statsEl.innerHTML='';return;}
+  if(!myAllOrders.length){diffUpdate(el,'<div class="loading">暂无订单</div>');diffUpdate(statsEl,'');return;}
 
   var countActive=0,countSold=0,countBought=0,countCancel=0,volSold=0,volBought=0;
   myAllOrders.forEach(function(o){
@@ -299,11 +352,11 @@ function renderMyOrders(){
     else if(o.role==='buy'){countBought++;volBought+=(o.total||0);}
     else if(o.status==='Cancelled'||o.status==='CancelPending')countCancel++;
   });
-  statsEl.innerHTML=''
+  diffUpdate(statsEl,''
     +'<div class="ms-item"><span class="ms-label">挂单中</span><span class="ms-val" style="color:var(--cyan)">'+countActive+'</span></div>'
     +'<div class="ms-item"><span class="ms-label">已卖出</span><span class="ms-val" style="color:var(--red)">'+countSold+'</span><span class="dim" style="font-size:12px">$'+volSold.toFixed(2)+'</span></div>'
     +'<div class="ms-item"><span class="ms-label">已买入</span><span class="ms-val" style="color:var(--green)">'+countBought+'</span><span class="dim" style="font-size:12px">$'+volBought.toFixed(2)+'</span></div>'
-    +'<div class="ms-item"><span class="ms-label">已取消</span><span class="ms-val" style="color:var(--dim)">'+countCancel+'</span></div>';
+    +'<div class="ms-item"><span class="ms-label">已取消</span><span class="ms-val" style="color:var(--dim)">'+countCancel+'</span></div>');
 
   var filtered=myAllOrders.filter(function(o){
     if(myCurrentFilter==='all')return true;
@@ -314,7 +367,7 @@ function renderMyOrders(){
     return true;
   });
 
-  if(!filtered.length){el.innerHTML='<div class="loading">无匹配记录</div>';return;}
+  if(!filtered.length){diffUpdate(el,'<div class="loading">无匹配记录</div>');return;}
 
   var SC={Active:'var(--green)',Completed:'var(--blue)',CancelPending:'var(--yellow)',Cancelled:'var(--dim)',Disputed:'var(--red)'};
   var SN={Active:'挂单中',Completed:'已成交',CancelPending:'取消中',Cancelled:'已取消',Disputed:'争议中'};
@@ -325,9 +378,18 @@ function renderMyOrders(){
     var sn=SN[st]||st;
     var typeClass=o.role==='buy'?'type-buy':'type-sell';
     var typeText=o.role==='buy'?'买入':'卖出';
+    // Time display based on status
+    var ot=orderTimes[String(o.id)]||{};
+    var timeStr='';
+    if(st==='Active') timeStr=ot.created||o.created_time||'';
+    else if(st==='Completed') timeStr=(ot.fulfilled||o.time||'');
+    else if(st==='CancelPending') timeStr=(ot.cancel_requested||'');
+    else if(st==='Cancelled') timeStr=(ot.cancelled||'');
+    if(!timeStr&&o.time) timeStr=o.time;
     var btn='';
     if(o.role==='sell'&&st==='Active')btn='<button onclick="event.stopPropagation();requestCancel('+o.id+')" style="padding:4px 10px;border-radius:6px;border:1px solid var(--red);background:transparent;color:var(--red);font-size:12px;cursor:pointer;font-weight:600">取消</button>';
-    else if(st==='CancelPending')btn='<span style="font-size:12px;color:var(--yellow)">冷却中</span>';
+    else if(st==='CancelPending')btn='<span class="cancel-countdown" data-oid="'+o.id+'" style="font-size:12px;color:var(--yellow)">冷却中</span>';
+    else if(st==='Cancelled')btn='<span style="font-size:12px;color:var(--dim)">已退回</span>';
     else if(st==='Disputed')btn='<span style="font-size:12px;color:var(--red)">争议中</span>';
     else btn='—';
     h+='<div class="order row-my" onclick="showDetail('+o.id+')">'
@@ -337,10 +399,11 @@ function renderMyOrders(){
       +'<span class="price">$'+(o.price||0).toFixed(3)+'</span>'
       +'<span class="total">$'+(o.total||0).toFixed(2)+'</span>'
       +'<span style="font-size:11px;font-weight:600;color:'+sc+'">'+sn+'</span>'
+      +'<span class="time-s">'+timeStr+'</span>'
       +'<span>'+btn+'</span>'
       +'</div>';
   });
-  el.innerHTML=h;
+  diffUpdate(el,h);
 }
 
 var _cancelling=false,_cancelStart=0;
@@ -375,9 +438,15 @@ async function requestCancel(id){
       gasPrice:gasPrice,
       chainId:'0x2012'
     }]});
-    alert('✅ 取消请求已发送!\nTX: '+txHash+'\n\n15分钟冷却后系统自动finalize取回AXON');
+    alert('✅ 取消请求已发送!\nTX: '+txHash+'\n\n⏱️ 15分钟冷却倒计时开始\n倒计时结束后请在"我的订单"中点击"取回 AXON"按钮领取退款');
+    // Save cancel time to localStorage for countdown
+    try{
+      var cancels=JSON.parse(localStorage.getItem('otc_cancel_times')||'{}');
+      cancels[id]=Date.now();
+      localStorage.setItem('otc_cancel_times',JSON.stringify(cancels));
+    }catch(e){}
     loadMyOrders();
-    setTimeout(loadOrders,15000);
+    startCancelCountdowns();
   }catch(e){
     var msg=e.message||'取消失败';
     if(e.code===4001)msg='已取消操作';
@@ -387,7 +456,100 @@ async function requestCancel(id){
   }
 }
 
-// ===== ONE-CLICK SELL =====
+// ===== CANCEL COUNTDOWN + AUTO FINALIZE =====
+var _cancelTimerInterval=null;
+
+function startCancelCountdowns(){
+  if(_cancelTimerInterval)clearInterval(_cancelTimerInterval);
+  _cancelTimerInterval=setInterval(updateCancelCountdowns,1000);
+  updateCancelCountdowns();
+}
+
+function updateCancelCountdowns(){
+  var cancels={};
+  try{cancels=JSON.parse(localStorage.getItem('otc_cancel_times')||'{}');}catch(e){}
+  var spans=document.querySelectorAll('.cancel-countdown');
+  if(!spans.length){return;}
+
+  var now=Date.now();
+  var COOLDOWN=15*60*1000; // 15 min
+
+  spans.forEach(function(span){
+    var oid=span.getAttribute('data-oid');
+    var cancelTime=cancels[oid];
+    if(!cancelTime){
+      span.textContent='冷却中';
+      span.style.color='var(--yellow)';
+      return;
+    }
+    var elapsed=now-cancelTime;
+    var remaining=COOLDOWN-elapsed;
+
+    if(remaining>0){
+      var min=Math.floor(remaining/60000);
+      var sec=Math.floor((remaining%60000)/1000);
+      span.textContent='⏱️ '+min+':'+String(sec).padStart(2,'0');
+      span.style.color='var(--yellow)';
+    }else{
+      // Cooldown expired — show finalize button
+      span.innerHTML='<button onclick="event.stopPropagation();doFinalize('+oid+')" style="padding:4px 10px;border-radius:6px;border:1px solid var(--green);background:transparent;color:var(--green);font-size:12px;cursor:pointer;font-weight:600;animation:pulse 1.5s infinite">取回 AXON</button>';
+    }
+  });
+}
+
+var _finalizing=false;
+async function doFinalize(id){
+  if(_finalizing){return;}
+  _finalizing=true;
+
+  if(!walletAddr){
+    if(getProvider()){try{var a=await getProvider().request({method:'eth_requestAccounts'});walletAddr=a[0];showWallet();}catch(e){}}
+    if(!walletAddr){alert('请先连接钱包');_finalizing=false;return;}
+  }
+
+  try{await safeChainSwitch(getProvider(),'0x2012',8210);}catch(e){alert('请切换到Axon链');_finalizing=false;return;}
+
+  try{
+    // finalizeCancelOrder(uint256) selector
+    var sel='0x24f9d60b';
+    var data=sel+id.toString(16).padStart(64,'0');
+    var gasPrice;
+    try{gasPrice=await getProvider().request({method:'eth_gasPrice'});}catch(e){gasPrice='0x430e2340';}
+
+    var txHash=await getProvider().request({method:'eth_sendTransaction',params:[{
+      from:walletAddr,
+      to:'0x10063340374db851e2628D06F4732d5FF814eB34',
+      data:data,
+      value:'0x0',
+      gas:'0x30d40',
+      gasPrice:gasPrice,
+      chainId:'0x2012'
+    }]});
+    alert('✅ AXON已退回钱包!\nTX: '+txHash);
+    // Clean up localStorage
+    try{
+      var cancels=JSON.parse(localStorage.getItem('otc_cancel_times')||'{}');
+      delete cancels[id];
+      localStorage.setItem('otc_cancel_times',JSON.stringify(cancels));
+      // Record in cancelled list
+      var cancelled=JSON.parse(localStorage.getItem('otc_cancelled')||'[]');
+      cancelled.push({id:id,time:new Date().toISOString(),txHash:txHash});
+      localStorage.setItem('otc_cancelled',JSON.stringify(cancelled));
+    }catch(e){}
+    loadMyOrders();
+    loadOrders();
+  }catch(e){
+    var msg=e.message||'finalize失败';
+    if(e.code===4001)msg='已取消操作';
+    if(msg.indexOf('cooldown')>-1||msg.indexOf('not ready')>-1)msg='冷却期未到，请稍后再试';
+    alert('❌ '+msg);
+  }finally{
+    _finalizing=false;
+  }
+}
+
+// Start countdowns on page load (if my orders tab is shown)
+setTimeout(startCancelCountdowns,2000);
 async function executeSell(){
   var statusEl=document.getElementById('sellStatus');
   var btn=document.getElementById('sellBtn');
@@ -465,7 +627,7 @@ async function executeSell(){
     // fetch gasPrice — try public RPC, fallback to hardcoded
     var gasPrice='0x430e2340'; // ~1.125 Gwei default
     try{
-      var gpR=await fetch(AXON_RPC,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',method:'eth_gasPrice',params:[],id:1})});
+      var gpR=await rpcFetch({jsonrpc:'2.0',method:'eth_gasPrice',params:[],id:1});
       var gpJ=await gpR.json();
       if(gpJ.result)gasPrice=gpJ.result;
     }catch(e){}

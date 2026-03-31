@@ -5,7 +5,29 @@
 function diffUpdate(el,html){
   if(el._lastHtml===html)return false;
   el._lastHtml=html;
-  el.innerHTML=html;
+  // DOM diff: compare child by child to minimize reflow
+  var tmp=document.createElement('div');
+  tmp.innerHTML=html;
+  var newKids=Array.from(tmp.children);
+  var oldKids=Array.from(el.children);
+  // if structure differs a lot, just replace
+  if(Math.abs(newKids.length-oldKids.length)>5||!oldKids.length){
+    el.innerHTML=html;return true;
+  }
+  // update existing, add new, remove extra
+  for(var i=0;i<newKids.length;i++){
+    if(i<oldKids.length){
+      if(oldKids[i].outerHTML!==newKids[i].outerHTML){
+        el.replaceChild(newKids[i],oldKids[i]);
+      }
+    }else{
+      el.appendChild(newKids[i]);
+    }
+  }
+  // remove excess old children
+  while(el.children.length>newKids.length){
+    el.removeChild(el.lastChild);
+  }
   return true;
 }
 // Only update textContent if changed
@@ -32,6 +54,8 @@ function renderOrders(){
   sorted.forEach(function(o){
     var s=esc(o.seller||'');
     var ss=s?s.slice(0,6)+'...'+s.slice(-4):'';
+    var ot=orderTimes[String(o.id)]||{};
+    var ct=ot.created||o.created_time||'';
     h+='<div class="order row-buy" onclick="showDetail('+o.id+')">'
       +'<span class="id">#'+o.id+'</span>'
       +'<span class="amount">'+(parseFloat(o.amount)||0).toFixed(2)+'</span>'
@@ -39,6 +63,7 @@ function renderOrders(){
       +'<span class="total">$'+(o.total||o.amount*o.price).toFixed(2)+'</span>'
       +'<span class="chain-tag">'+(o.chain||CHAIN_NAMES[o.chain_id]||'')+'</span>'
       +'<span class="seller-s">'+ss+'</span>'
+      +'<span class="time-s">'+ct+'</span>'
       +'<span><button class="btn-buy" onclick="event.stopPropagation();buyOrder('+o.id+')">购买</button></span>'
       +'</div>';
   });
@@ -53,14 +78,18 @@ function renderTrades(){
   trades.forEach(function(t){
     var s=esc(t.seller||'');
     var ss=s?s.slice(0,6)+'...'+s.slice(-4):'';
-    h+='<div class="order row-buy trade" onclick="showDetail('+t.id+')">'
+    var ot=orderTimes[String(t.id)]||{};
+    var ct=ot.created||t.created_time||'';
+    var ft=ot.fulfilled||t.time||'';
+    h+='<div class="order row-trade" onclick="showDetail('+t.id+')">'
       +'<span class="id">#'+t.id+'</span>'
       +'<span class="amount">'+(parseFloat(t.amount)||0).toFixed(2)+'</span>'
       +'<span class="price" style="color:var(--green)">$'+t.price.toFixed(3)+'</span>'
       +'<span class="total">$'+(t.total||0).toFixed(2)+'</span>'
       +'<span class="chain-tag">'+(t.chain||'BSC')+'</span>'
       +'<span class="seller-s">'+ss+'</span>'
-      +'<span style="font-size:11px;color:var(--dim)">'+(t.time||'')+'</span>'
+      +'<span class="time-s">'+ct+'</span>'
+      +'<span class="time-s">'+ft+'</span>'
       +'</div>';
   });
   diffUpdate(el,h);
@@ -73,10 +102,12 @@ function renderSideTrades(){
   var h='';
   var show=trades.slice(0,20);
   show.forEach(function(t){
+    var ot=orderTimes[String(t.id)]||{};
+    var tm=ot.fulfilled||t.time||ot.created||'';
     h+='<div class="side-trade">'
       +'<span class="st-amount">'+(parseFloat(t.amount)||0).toFixed(1)+' <span style="color:var(--dim);font-size:11px">AXON</span></span>'
       +'<span class="st-price">$'+(t.price||0).toFixed(3)+'</span>'
-      +'<span class="st-time">'+(t.time||'')+'</span>'
+      +'<span class="st-time">'+tm+'</span>'
       +'</div>';
   });
   diffUpdate(el,h);
@@ -100,8 +131,35 @@ function drawPriceChart(){
   var canvas=document.getElementById('priceChart');
   if(!canvas)return;
   var chartRow=canvas.closest('.chart-row');
-  if(trades.length<2){if(chartRow)chartRow.style.display='none';return;}
+  if(trades.length<1){if(chartRow)chartRow.style.display='none';return;}
   if(chartRow)chartRow.style.display='';
+
+  // Single data point — draw a centered dot with price label
+  if(trades.length===1){
+    var dpr=window.devicePixelRatio||1;
+    var W=canvas.parentElement.clientWidth-12;
+    var H=160;
+    canvas.width=W*dpr;canvas.height=H*dpr;
+    canvas.style.width=W+'px';canvas.style.height=H+'px';
+    var ctx=canvas.getContext('2d');
+    ctx.scale(dpr,dpr);ctx.clearRect(0,0,W,H);
+    var isDark=document.documentElement.getAttribute('data-theme')!=='light';
+    var cx=W/2,cy=H/2-10;
+    ctx.beginPath();ctx.arc(cx,cy,8,0,Math.PI*2);
+    ctx.fillStyle=isDark?'rgba(0,212,255,0.15)':'rgba(59,130,246,0.1)';ctx.fill();
+    ctx.beginPath();ctx.arc(cx,cy,5,0,Math.PI*2);
+    ctx.fillStyle=isDark?'rgba(2,6,23,0.8)':'rgba(255,255,255,0.9)';ctx.fill();
+    ctx.strokeStyle=isDark?'#00e5ff':'#3b82f6';ctx.lineWidth=2;ctx.stroke();
+    ctx.beginPath();ctx.arc(cx,cy,2.5,0,Math.PI*2);
+    ctx.fillStyle=isDark?'#00e5ff':'#3b82f6';ctx.fill();
+    ctx.fillStyle=isDark?'#00e5ff':'#3b82f6';
+    ctx.font='bold 14px -apple-system,system-ui,sans-serif';ctx.textAlign='center';
+    ctx.fillText('$'+trades[0].price.toFixed(3),cx,cy+28);
+    ctx.fillStyle=isDark?'#64748b':'#94a3b8';
+    ctx.font='11px -apple-system,system-ui,sans-serif';
+    ctx.fillText(trades[0].time||'',cx,cy+44);
+    return;
+  }
 
   var dpr=window.devicePixelRatio||1;
   var W=canvas.parentElement.clientWidth-12;
@@ -382,6 +440,13 @@ async function showDetail(orderId){
       +'<div><span class="label">付款地址</span><span class="val" style="font-size:11px;word-break:break-all">'+(pmt.address||o.payment_address||'—')+'</span></div>'
       +'<div><span class="label">卖家</span><span class="val" style="font-size:11px;word-break:break-all">'+esc(o.seller||'—')+'</span></div>'
       +'<div><span class="label">状态</span><span class="val">'+statusText+'</span></div>';
+    // Add timeline from orderTimes
+    var ot=orderTimes[String(o.id)]||{};
+    if(ot.created)info.innerHTML+='<div><span class="label">挂单时间</span><span class="val">'+ot.created+'</span></div>';
+    if(ot.cancel_requested)info.innerHTML+='<div><span class="label">申请取消</span><span class="val" style="color:var(--yellow)">'+ot.cancel_requested+'</span></div>';
+    if(ot.cancelled)info.innerHTML+='<div><span class="label">取消完成</span><span class="val" style="color:var(--dim)">'+ot.cancelled+'</span></div>';
+    if(ot.bought)info.innerHTML+='<div><span class="label">买方付款</span><span class="val" style="color:var(--blue)">'+ot.bought+'</span></div>';
+    if(ot.fulfilled)info.innerHTML+='<div><span class="label">成交时间</span><span class="val" style="color:var(--green)">'+ot.fulfilled+'</span></div>';
     if(o.status==='Disputed'){
       info.innerHTML+='<div style="margin-top:8px;padding:8px;background:#ff525215;border-radius:6px;font-size:12px;color:#ff8a80">⚠️ 订单争议中，请通过官方渠道联系管理员处理。</div>';
     }

@@ -55,6 +55,20 @@ function toggleTheme(){
 
 var KEEPER='https://axonotc.com';
 var AXON_RPC='https://mainnet-rpc.axonchain.ai/';
+var AXON_RPC_FALLBACK='https://ai-colony.top/axon-rpc/';
+async function rpcFetch(body,opts){
+  var b=typeof body==='string'?body:JSON.stringify(body);
+  var base={method:'POST',headers:{'Content-Type':'application/json'},body:b};
+  try{
+    var r=await Promise.any([
+      fetch(AXON_RPC,Object.assign({},base,opts||{})).then(function(r){if(!r.ok)throw r;return r;}),
+      fetch(AXON_RPC_FALLBACK,Object.assign({},base,opts||{})).then(function(r){if(!r.ok)throw r;return r;})
+    ]);
+    return r;
+  }catch(e){
+    return fetch(AXON_RPC_FALLBACK,Object.assign({},base,opts||{}));
+  }
+}
 var CHAIN_NAMES={56:'BSC',42161:'Arbitrum'};
 var CHAIN_HEX={56:'0x38',42161:'0xa4b1'};
 var TOKENS={56:{USDT:'0x55d398326f99059fF775485246999027B3197955',USDC:'0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d'},42161:{USDT:'0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',USDC:'0xaf88d065e77c8cC2239327C5EDb3A432268e5831'}};
@@ -63,6 +77,7 @@ var EXPLORER={56:'https://bscscan.com/tx/',42161:'https://arbiscan.io/tx/'};
 var TOKEN_DECIMALS={56:{USDT:18,USDC:18},42161:{USDT:6,USDC:6}};
 
 var orders=[];
+var orderTimes={}; // {orderId: {created, cancel_requested, cancelled, fulfilled, ...}}
 var _provider=null;
 function getProvider(){
   if(_provider)return _provider;
@@ -116,7 +131,8 @@ async function init(){
   }
   await loadOrders();
   updateSellCmd();
-  setInterval(function(){loadConfig();loadOrders();},30000);
+  setInterval(loadOrders,15000); // 挂单快刷
+  setInterval(loadConfig,60000); // 配置慢刷
 }
 
 function onDisconnect(){
@@ -200,10 +216,7 @@ async function loadAxonBalance(){
   if(!walletAddr)return;
   try{
     var body=JSON.stringify({jsonrpc:'2.0',method:'eth_getBalance',params:[walletAddr,'latest'],id:1});
-    var ctrl=new AbortController();
-    var timer=setTimeout(function(){ctrl.abort();},10000);
-    var r=await fetch(AXON_RPC,{method:'POST',headers:{'Content-Type':'application/json'},body:body,signal:ctrl.signal});
-    clearTimeout(timer);
+    var r=await rpcFetch(body);
     var d=await r.json();
     if(d.result){
       var bal=(parseInt(d.result,16)/1e18).toFixed(2);
@@ -284,18 +297,19 @@ async function loadOrders(){
     otcData=await r2.json();
     trades=(otcData.otc_recent_trades||[]).filter(function(t){return (t.total||0)>=1;});
     trades.sort(function(a,b){return b.id-a.id;});
+    orderTimes=otcData.otc_order_times||{};
   }catch(e){}
 
   orders.sort(function(a,b){return a.price-b.price;});
   var totalAxon=0;
   orders.forEach(function(o){totalAxon+=(o.amount||0);});
-  document.getElementById('sActive').textContent=orders.length;
-  document.getElementById('sDepth').textContent=totalAxon.toFixed(0);
-  if(orders.length>0) document.getElementById('sFloor').textContent='$'+orders[0].price.toFixed(3);
+  diffText(document.getElementById('sActive'),String(orders.length));
+  diffText(document.getElementById('sDepth'),totalAxon.toFixed(0));
+  if(orders.length>0) diffText(document.getElementById('sFloor'),'$'+orders[0].price.toFixed(3));
   if(otcData){
-    if(otcData.otc_last_price) document.getElementById('sLast').textContent='$'+otcData.otc_last_price.toFixed(3);
-    document.getElementById('sVol').textContent='$'+(otcData.otc_completed_volume_usd||0).toFixed(0);
-    document.getElementById('sTrades').textContent=otcData.otc_completed_count||0;
+    if(otcData.otc_last_price) diffText(document.getElementById('sLast'),'$'+otcData.otc_last_price.toFixed(3));
+    diffText(document.getElementById('sVol'),'$'+(otcData.otc_completed_volume_usd||0).toFixed(0));
+    diffText(document.getElementById('sTrades'),String(otcData.otc_completed_count||0));
   }
   document.getElementById('updTime').textContent='更新 '+new Date().toLocaleTimeString('zh-CN');
 

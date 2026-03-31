@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>AXON /U — 场外交易平台</title>
-<link rel="stylesheet" href="otc.css?v=38">
+<link rel="stylesheet" href="otc.css?v=50">
 </head>
 <body>
 <div class="wrap">
@@ -30,7 +30,6 @@
     <div class="hd-r">
       <span class="tag" id="keeperStatus">⏳</span>
       <span class="tag" id="balTag" style="display:none">💰 <span id="axonBal">0</span> AXON</span>
-      <a href="/explorer/" class="btn-s btn-ghost">📊 监控</a>
       <button class="theme-btn" id="themeBtn" onclick="toggleTheme()" title="切换主题">🌙</button>
       <button class="btn-s btn-wallet" id="walletBtn" onclick="connectWallet()">连接钱包</button>
       <button class="btn-s btn-ghost" id="disconnectBtn" onclick="disconnectWallet()" style="display:none;color:var(--red);border-color:var(--red)">✕</button>
@@ -38,6 +37,7 @@
   </div>
 
   <!-- 公告横幅 -->
+  <div class="notice-bar warn">⚠️ USDT结算由Keeper自动处理，卖出成交后到账可能有延迟（通常5-30分钟），如长时间未到账请联系官方管理员。</div>
   <div class="notice-bar" id="noticeBar" style="display:none"></div>
 
   <!-- 平台维护遮罩 -->
@@ -93,7 +93,7 @@
           <input id="filterMax" type="number" placeholder="最高" style="width:65px" oninput="renderOrders()">
           <span class="upd-time" id="updTime"></span>
         </div>
-        <div class="tbl-hd tbl-buy"><span>#</span><span>数量</span><span>单价</span><span>总价</span><span>链</span><span>卖家</span><span></span></div>
+        <div class="tbl-hd tbl-buy"><span>#</span><span>数量</span><span>单价</span><span>总价</span><span>链</span><span>卖家</span><span>挂单时间</span><span></span></div>
         <div class="orders" id="orderList"><div class="loading">加载中...</div></div>
       </div>
       <div class="buy-right">
@@ -192,13 +192,13 @@
       <div class="my-tab" onclick="switchMyTab('cancelled',this)">已取消</div>
     </div>
     <div class="my-stats" id="myStats"></div>
-    <div class="tbl-hd tbl-my"><span>#</span><span>类型</span><span>数量</span><span>单价</span><span>总价</span><span>状态</span><span></span></div>
+    <div class="tbl-hd tbl-my"><span>#</span><span>类型</span><span>数量</span><span>单价</span><span>总价</span><span>状态</span><span>时间</span><span></span></div>
     <div class="orders" id="myOrderList"><div class="loading">请先连接钱包</div></div>
   </div>
 
   <!-- ====== 成交记录 ====== -->
   <div id="tabHistory" style="display:none">
-    <div class="tbl-hd tbl-buy"><span>#</span><span>数量</span><span>单价</span><span>总价</span><span>链</span><span>卖家</span><span>时间</span></div>
+    <div class="tbl-hd tbl-trade"><span>#</span><span>数量</span><span>单价</span><span>总价</span><span>链</span><span>卖家</span><span>挂单</span><span>成交</span></div>
     <div class="orders" id="tradeList"><div class="loading">加载中...</div></div>
   </div>
 
@@ -226,7 +226,7 @@
   </div>
 
   <div class="footer">
-    <a href="https://your-domain.com">AI Colony</a> · <a href="https://axonchain.ai" target="_blank">Axon</a> · <a href="https://axonotc.com" target="_blank">Keeper V7</a>
+    <a href="https://ai-colony.top">AI Colony</a> · <a href="https://axonchain.ai" target="_blank">Axon</a> · <a href="https://axonotc.com" target="_blank">Keeper V7</a>
     <br>OTC合约 <span class="mono" style="font-size:11px">0x10063340374db851e2628D06F4732d5FF814eB34</span>
     <br>Registry合约 <span class="mono" style="font-size:11px">0x98e40D7D867E4E8e185d216bab13B79f5283F656</span>
     · Axon Mainnet (8210) · BSC/Arb
@@ -259,8 +259,8 @@
   </div>
 </div>
 
-<script src="otc.js?v=33"></script>
-<script src="otc2.js?v=27"></script>
-<script src="otc3.js?v=36"></script>
+<script src="otc.js?v=45"></script>
+<script src="otc2.js?v=39"></script>
+<script src="otc3.js?v=53"></script>
 </body>
 </html>

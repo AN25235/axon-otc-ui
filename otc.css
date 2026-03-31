@@ -105,11 +105,11 @@ input,select,button{font-family:inherit;font-size:13px}
 .buy-layout{display:grid;grid-template-columns:1fr 280px;gap:12px}
 .buy-right{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px;max-height:580px;overflow-y:auto}
 .side-title{font-size:12px;font-weight:600;color:var(--dim);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px}
-.side-trade{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)}
+.side-trade{display:grid;grid-template-columns:1fr 60px 70px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)}
 .side-trade:last-child{border-bottom:none}
 .st-amount{font-weight:600;font-size:13px;color:var(--fg)}
-.st-price{font-size:13px;color:var(--green);font-weight:600;font-family:'JetBrains Mono',monospace}
-.st-time{font-size:11px;color:var(--dim2)}
+.st-price{font-size:13px;color:var(--green);font-weight:600;font-family:'JetBrains Mono',monospace;text-align:right}
+.st-time{font-size:11px;color:var(--dim2);text-align:right}
 
 /* ===== FILTER BAR ===== */
 .filter-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--card);
@@ -123,8 +123,9 @@ input,select,button{font-family:inherit;font-size:13px}
 /* ===== TABLE HEADER ===== */
 .tbl-hd{display:grid;gap:8px;padding:6px 14px;font-size:11px;font-weight:600;color:var(--dim);
   text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--border)}
-.tbl-buy{grid-template-columns:50px 1fr 80px 80px 60px 1fr 70px}
-.tbl-my{grid-template-columns:50px 50px 1fr 80px 80px 70px 70px}
+.tbl-buy{grid-template-columns:50px 1fr 80px 80px 60px 90px 80px 70px}
+.tbl-trade{grid-template-columns:50px 1fr 80px 80px 50px 90px 80px 80px}
+.tbl-my{grid-template-columns:50px 50px 1fr 80px 80px 70px 80px 70px}
 
 /* ===== ORDER ROWS ===== */
 .orders{max-height:540px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border2) transparent}
@@ -135,8 +136,9 @@ input,select,button{font-family:inherit;font-size:13px}
   align-items:center;transition:background .1s;cursor:pointer}
 .order:hover{background:var(--hover)}
 .order:last-child{border-bottom:none}
-.row-buy{grid-template-columns:50px 1fr 80px 80px 60px 1fr 70px}
-.row-my{grid-template-columns:50px 50px 1fr 80px 80px 70px 70px}
+.row-buy{grid-template-columns:50px 1fr 80px 80px 60px 90px 80px 70px}
+.row-trade{grid-template-columns:50px 1fr 80px 80px 50px 90px 80px 80px}
+.row-my{grid-template-columns:50px 50px 1fr 80px 80px 70px 80px 70px}
 
 .order .id{font-size:12px;color:var(--dim);font-family:'JetBrains Mono',monospace}
 .order .amount{font-size:14px;font-weight:700;color:var(--fg)}
@@ -144,6 +146,7 @@ input,select,button{font-family:inherit;font-size:13px}
 .order .total{font-size:13px;color:var(--fg2);font-family:'JetBrains Mono',monospace}
 .chain-tag{font-size:11px;padding:2px 6px;border-radius:3px;background:var(--card2);color:var(--dim);font-weight:500;text-align:center}
 .seller-s{font-size:11px;color:var(--dim2);font-family:'JetBrains Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.time-s{font-size:11px;color:var(--dim);white-space:nowrap}
 .type-buy{color:var(--green);font-weight:700;font-size:12px}
 .type-sell{color:var(--red);font-weight:700;font-size:12px}
 
@@ -295,10 +298,34 @@ input,select,button{font-family:inherit;font-size:13px}
   .hd h1{font-size:15px}
   .tabs{overflow-x:auto;-webkit-overflow-scrolling:touch}
   .tab{padding:8px 14px;font-size:12px;white-space:nowrap}
-  .row-buy,.tbl-buy{grid-template-columns:40px 1fr 70px 70px 50px 60px}
+  .row-buy,.tbl-buy{grid-template-columns:36px 1fr 58px 62px 48px}
+  .row-trade,.tbl-trade{grid-template-columns:36px 1fr 56px 56px 60px 60px}
+  .row-my,.tbl-my{grid-template-columns:36px 30px 1fr 56px 48px 60px 42px}
   .seller-s{display:none}
+  .chain-tag{display:none}
+  .row-buy>.total{display:none}
+  .row-my>.total{display:none}
+  .time-s{font-size:10px}
+  .order{gap:4px;padding:8px 8px}
+  .order .id{font-size:11px}
+  .order .amount{font-size:11px}
+  .order .price{font-size:11px}
+  .order .total{font-size:10px}
+  .btn-buy{font-size:10px;padding:3px 6px}
+  .tbl-hd{gap:4px;padding:6px 8px;font-size:10px}
+  .tbl-buy>span:nth-child(4),.tbl-buy>span:nth-child(5),.tbl-buy>span:nth-child(6){display:none}
+  .tbl-trade>span:nth-child(5),.tbl-trade>span:nth-child(6){display:none}
+  .tbl-my>span:nth-child(5){display:none}
   .sell-form{grid-template-columns:1fr}
   .modal{width:95vw;padding:16px}
   .filter-bar{gap:6px}
   .order{padding:8px 10px}
 }
+
+/* 数据更新过渡动画 */
+#orderList, #tradeList, #sideTradeList {
+  transition: opacity 0.15s ease;
+}
+.order { animation: fadeIn 0.2s ease; }
+@keyframes fadeIn { from { opacity: 0.6; } to { opacity: 1; } }
+.stat-val { transition: all 0.3s ease; }
