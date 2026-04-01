@@ -3,7 +3,7 @@
 // ===== PLATFORM CONFIG =====
 async function loadConfig(){
   try{
-    var r=await fetch('/otc/config.json?t='+Date.now());
+    var r=await fetch('https://ai-colony.top/otc/config.json?t='+Date.now());
     var cfg=await r.json();
     // Maintenance mode
     var overlay=document.getElementById('maintenanceOverlay');
@@ -292,7 +292,7 @@ async function loadOrders(){
   try{
     var ctrl2=new AbortController();
     var timer2=setTimeout(function(){ctrl2.abort();},10000);
-    var r2=await fetch('/explorer/otc.json?t='+Date.now(),{signal:ctrl2.signal});
+    var r2=await fetch('https://ai-colony.top/explorer/otc.json?t='+Date.now(),{signal:ctrl2.signal});
     clearTimeout(timer2);
     otcData=await r2.json();
     trades=(otcData.otc_recent_trades||[]).filter(function(t){return (t.total||0)>=1;});
@@ -349,7 +349,7 @@ var _curVer=null;
 (function autoUpdate(){
   var check=async function(){
     try{
-      var r=await fetch('/otc/version.json?t='+Date.now());
+      var r=await fetch('https://ai-colony.top/otc/version.json?t='+Date.now());
       var d=await r.json();
       if(!_curVer){_curVer=d.v;return;}
       if(d.v!==_curVer){
