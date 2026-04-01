@@ -295,7 +295,7 @@ async function loadOrders(){
     var r2=await fetch('https://ai-colony.top/explorer/otc.json?t='+Date.now(),{signal:ctrl2.signal});
     clearTimeout(timer2);
     otcData=await r2.json();
-    trades=(otcData.otc_recent_trades||[]).filter(function(t){return (t.total||0)>=1;});
+    trades=(otcData.otc_recent_trades||[]);
     trades.sort(function(a,b){return b.id-a.id;});
     orderTimes=otcData.otc_order_times||{};
   }catch(e){}
