@@ -121,12 +121,28 @@ def scan_all_events(stats):
                     # Build trade record (same as before)
                     existing_ids = [t["id"] for t in stats.get("trades", [])]
                     if int(order_id) in existing_ids:
-                        # Update time on existing trade
                         for t in stats.get("trades", []):
                             if t["id"] == int(order_id):
-                                t["time"] = bt
+                                # Always update time
+                                if bt: t["time"] = bt
                                 if "created" in order_times.get(order_id, {}):
                                     t["created_time"] = order_times[order_id]["created"]
+                                # Fix price=0 from Keeper
+                                if not t.get("price") or not t.get("seller"):
+                                    try:
+                                        import urllib.request as _ur
+                                        _kr = _ur.urlopen(f"https://axonotc.com/order/{order_id}", timeout=5)
+                                        _kd = json.loads(_kr.read())
+                                        if _kd.get("price"): t["price"] = _kd["price"]
+                                        if _kd.get("seller"): t["seller"] = _kd["seller"]
+                                        if _kd.get("buyer"): t["buyer"] = _kd["buyer"]
+                                        if _kd.get("chain_id"): t["chain_id"] = _kd["chain_id"]
+                                        if _kd.get("amount"): t["amount"] = _kd["amount"]
+                                        t["total"] = round(t["amount"] * t["price"], 2)
+                                        t["chain"] = {56:"BSC",42161:"Arbitrum"}.get(t.get("chain_id",56),"BSC")
+                                        log(f"    Keeper修复: #{order_id} ${t['price']}")
+                                    except:
+                                        pass
                         continue
 
                     data = entry["data"][2:]
@@ -148,17 +164,42 @@ def scan_all_events(stats):
                                 "toBlock": hex(search_end)
                             }])
                             if create_logs:
-                                create_tx = rpc_call("eth_getTransactionByHash", [create_logs[0]["transactionHash"]])
-                                inp = create_tx["input"][10:]
-                                price = int(inp[:64], 16) / 1e6
-                                chain_id = int(inp[64:128], 16)
-                                seller = create_tx["from"]
+                                cl = create_logs[0]
+                                cdata = cl["data"][2:]
+                                # Try event data first (new contract: amount, price, chain_id in data; seller in topics[2])
+                                if len(cdata) >= 192 and len(cl.get("topics", [])) >= 3:
+                                    price = int(cdata[64:128], 16) / 1e6
+                                    chain_id = int(cdata[128:192], 16)
+                                    seller = "0x" + cl["topics"][2][-40:]
+                                else:
+                                    # Fallback: parse from transaction input (old contract)
+                                    create_tx = rpc_call("eth_getTransactionByHash", [cl["transactionHash"]])
+                                    if create_tx:
+                                        inp = create_tx["input"][10:]
+                                        price = int(inp[:64], 16) / 1e6
+                                        chain_id = int(inp[64:128], 16)
+                                        seller = create_tx["from"]
                                 break
                             search_end = search_start - 1
                             if search_end < DEPLOY_BLOCK:
                                 break
                     except:
                         pass
+
+                    # Fallback to Keeper if chain parsing failed
+                    if not price or not seller:
+                        try:
+                            import urllib.request as _ur
+                            _kr = _ur.urlopen(f"https://axonotc.com/order/{order_id}", timeout=5)
+                            _kd = json.loads(_kr.read())
+                            if _kd.get("price"):
+                                price = _kd["price"]
+                                seller = _kd.get("seller", seller or "")
+                                chain_id = _kd.get("chain_id", chain_id or 56)
+                                amount_original = _kd.get("amount", amount_original)
+                                log(f"    Keeper补价: #{order_id} ${price}")
+                        except:
+                            pass
 
                     # Get buyer from fulfill TX
                     buyer = order_times.get(order_id, {}).get("buyer")
@@ -167,6 +208,16 @@ def scan_all_events(stats):
                             fulfill_tx = rpc_call("eth_getTransactionByHash", [tx_hash])
                             inp = fulfill_tx["input"][10:]
                             buyer = "0x" + inp[64:128][-40:]
+                        except:
+                            pass
+                    # Also try Keeper for buyer
+                    if not buyer or buyer == "0x" + "0"*40:
+                        try:
+                            import urllib.request as _ur
+                            _kr = _ur.urlopen(f"https://axonotc.com/order/{order_id}", timeout=5)
+                            _kd = json.loads(_kr.read())
+                            if _kd.get("buyer"):
+                                buyer = _kd["buyer"]
                         except:
                             pass
 
@@ -212,8 +263,9 @@ def scan_all_events(stats):
     # Update stats
     if new_trades:
         stats.setdefault("trades", []).extend(new_trades)
-        stats["completed_count"] = len(stats["trades"])
-        stats["completed_volume_usd"] = round(sum(t["total"] for t in stats["trades"]), 2)
+        valid_stat_trades = [t for t in stats["trades"] if t.get("price", 0) > 0]
+        stats["completed_count"] = len(valid_stat_trades)
+        stats["completed_volume_usd"] = round(sum(t["total"] for t in valid_stat_trades), 2)
         valid_trades = [t for t in stats["trades"] if t.get("price", 0) > 0]
         if valid_trades:
             stats["last_price"] = valid_trades[-1]["price"]
@@ -270,13 +322,38 @@ def collect_otc():
     max_id = max(o["id"] for o in active) if active else 0
 
     # Recent trades with times (sorted newest first)
-    recent_trades = sorted(stats.get("trades", []), key=lambda t: t.get("block", 0), reverse=True)
-    # Enrich trades with order_times
+    recent_trades = sorted(stats.get("trades", []), key=lambda t: t.get("id", 0), reverse=True)
+    # Enrich trades with order_times + Keeper fix for price=0
+    need_keeper_fix = []
     for t in recent_trades:
         oid = str(t["id"])
         times = order_times.get(oid, {})
         if "created_time" not in t or not t["created_time"]:
             t["created_time"] = times.get("created", "")
+        if not t.get("price") or not t.get("seller"):
+            need_keeper_fix.append(t)
+
+    if need_keeper_fix:
+        log(f"Keeper补全 {len(need_keeper_fix)} 笔缺失数据...")
+        import urllib.request as _ur
+        for t in need_keeper_fix:
+            try:
+                _kr = _ur.urlopen(f"https://axonotc.com/order/{t['id']}", timeout=5)
+                _kd = json.loads(_kr.read())
+                if _kd.get("status") == "Completed" and _kd.get("price"):
+                    t["price"] = _kd["price"]
+                    t["seller"] = _kd.get("seller", "")
+                    t["buyer"] = _kd.get("buyer", "")
+                    t["chain_id"] = _kd.get("chain_id", 56)
+                    t["amount"] = _kd.get("amount", t["amount"])
+                    t["total"] = round(t["amount"] * t["price"], 2)
+                    t["chain"] = {56:"BSC",42161:"Arbitrum"}.get(t["chain_id"],"BSC")
+                    log(f"  #{t['id']} → ${t['price']}")
+            except:
+                pass
+            import time as _t; _t.sleep(0.05)
+        # Update stats with fixed data
+        save_stats(stats)
 
     # Cancelled orders (from order_times)
     cancelled_orders = []
@@ -334,6 +411,15 @@ if __name__ == "__main__":
 
     with open(CACHE_PATH, "w") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+    # Full trades history for "my orders" tab persistence
+    all_trades_path = CACHE_PATH.replace("otc.json", "otc_trades_all.json")
+    try:
+        all_stats = json.load(open(STATS_PATH))
+        with open(all_trades_path, "w") as f:
+            json.dump(all_stats.get("trades", []), f, ensure_ascii=False)
+    except:
+        pass
 
     t1 = time.time()
     log(json.dumps({k: v for k, v in data.items() if k not in ("otc_active_orders", "otc_recent_trades", "otc_order_times", "otc_cancelled_orders", "otc_cancel_pending")}, indent=2))

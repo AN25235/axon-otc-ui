@@ -290,9 +290,8 @@ async function loadMyOrders(){
   var seenIds={};
   newOrders.forEach(function(o){seenIds['sell_'+o.id]=1;});
   try{
-    var r=await fetch('https://ai-colony.top/explorer/otc.json?t='+Date.now());
-    var otc=await r.json();
-    var trades=otc.otc_recent_trades||[];
+    var r=await fetch('https://ai-colony.top/explorer/otc_trades_all.json?t='+Date.now());
+    var trades=await r.json();
     trades.forEach(function(o){
       // As seller (completed sale)
       if(o.seller&&o.seller.toLowerCase()===addr&&!seenIds['sell_'+o.id]){
