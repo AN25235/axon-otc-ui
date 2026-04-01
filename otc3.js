@@ -268,11 +268,15 @@ async function loadMyOrders(){
     var r2=await fetch(KEEPER+'/orders');
     var d2=await r2.json();
     var mySellerOrders=(d2.orders||d2).filter(function(o){return o.seller&&o.seller.toLowerCase()===addr;});
-    // Batch check real status for each order
-    var detailPromises=mySellerOrders.map(function(o){
-      return fetch(KEEPER+'/order/'+o.id).then(function(r){return r.json();}).catch(function(){return null;});
-    });
-    var details=await Promise.all(detailPromises);
+    // Check real status — batch with concurrency limit
+    var details=[];
+    for(var i=0;i<mySellerOrders.length;i+=5){
+      var batch=mySellerOrders.slice(i,i+5).map(function(o){
+        return fetch(KEEPER+'/order/'+o.id).then(function(r){return r.json();}).catch(function(){return null;});
+      });
+      var res=await Promise.all(batch);
+      details=details.concat(res);
+    }
     details.forEach(function(d,i){
       if(!d)return;
       var o=Object.assign({},mySellerOrders[i],d);

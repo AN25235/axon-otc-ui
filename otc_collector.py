@@ -387,6 +387,12 @@ def collect_otc():
     valid_trades = [t for t in recent_trades if t.get("price", 0) > 0]
     last_price = valid_trades[0]["price"] if valid_trades else stats.get("last_price")
 
+    # Always recalculate stats from current trades (catches Keeper fixes)
+    all_valid = [t for t in stats.get("trades", []) if t.get("price", 0) > 0]
+    stats["completed_count"] = len(all_valid)
+    stats["completed_volume_usd"] = round(sum(t.get("total", 0) for t in all_valid), 2)
+    save_stats(stats)
+
     result = {
         "otc_total_orders": max_id + 1,
         "otc_active_count": len(active),
